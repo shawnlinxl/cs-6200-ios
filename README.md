@@ -18,3 +18,7 @@ This repository centralizes learning resources that are useful for the CS 6200 c
 
 - Blog [post](https://downey.io/blog/learning-operating-systems-and-c-programming) by Downey. He listed many websites/books he found useful for this course.
 - Piazza [post](https://piazza.com/class/k51tqk6j5hf59j?cid=25)
+
+## Contributing
+
+Most of my notes are pretty rough. You are welcomed to submit a pull request for adding new contents, reorganizing contents, or fixing typos.
