@@ -4,9 +4,10 @@ This repository centralizes learning resources that are useful for the CS 6200 c
 
 ## Resources in this repository
 
-- For Udacity course videos' notes, click [here](/notes/README.md)
-- For Course readings, click [here](/papers)
+- Udacity course videos' [notes](/notes/README.md)
+- Course [readings](/papers)
 
 ## Other useful resources
 
-Blog post by [Downey](https://downey.io/blog/learning-operating-systems-and-c-programming). He listed many websites/books he found useful for this course.
+- [Course Schedule](https://docs.google.com/spreadsheets/d/1W7eVQrNGW0EHFIZ6ZiOP1yzI80bT5eWyIRZK4OOyp5E/edit#gid=1868198252) for Spring 2020
+- Blog post by [Downey](https://downey.io/blog/learning-operating-systems-and-c-programming). He listed many websites/books he found useful for this course.
