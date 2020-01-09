@@ -186,7 +186,7 @@ Only require the most basic primitives at OS level. File system, disk driver, et
 - **-** complexity of software development
 - **-** cost of user/kernel crossing (more frequent)
 
-### Processes and Process Management
+## Processes and Process Management
 
 Simple Process Definition:
 
@@ -287,7 +287,51 @@ OS must be able to do the following tasks efficiently:
 
 Longer the process runs means less often we are invoking the task scheduler. Consider the following case:
 
-* running process for amount of time $T_p$
-* schedular takes amount of $T_\text{sched}$
+- running process for amount of time $T_p$
+- schedular takes amount of $T_\text{sched}$
 
 $$\text{Useful CPU Work} = \frac{\text{Total Processing Time}}{\text{Total time}} = \frac{T_p}{T_p + T_\text{sched}}$$
+
+### Can Processes Interact
+
+An operating system must provide mechanisms to allow processes to interact with each other. Many applications we see today are structured as multiple processes.
+
+Inter Process Communication (IPC) mechanisms:
+
+- transfer data/info between address spaces
+- maintain protection and isolation
+- provide flexibility and performance
+
+#### Message-passing IPC
+
+- OS provides communication channel, like shared buffer
+- Processes write/read messages to.from channel
+- **+** OS manages
+- **-** overheads: everything needs to go through the OS
+
+#### Shared memory IPC
+
+- OS establishes a shared channel and maps it into each process address space
+- Processes directly read/write from this memory
+- **+**: OS is out of the way
+- **-**: No shared and well defined API because OS is not involved. Can be more error-prone, and developers may need to re-implement code. Mapping memory between processes can also be expensive.
+
+## Threads and Concurrency
+
+### Toy shop worker metaphor
+
+A worker in a toy shop:
+
+- is an active entity: executing unit of toy order
+- works simultaneously with others: many workers completing toy orders
+- requires coordination: sharing of tools, parts, workstations
+
+A thread:
+
+- is an active entity: executing unit of a process
+- works simultaneously with others: many threads executing
+- requires coordination: sharing of I/O devices, CPUs, memory
+
+### Process vs Thread
+
+Threads are part of the same virtual address space. Each thread will have a separate program counter, registers, and stack pointer.
