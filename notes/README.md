@@ -335,3 +335,224 @@ A thread:
 ### Process vs Thread
 
 Threads are part of the same virtual address space. Each thread will have a separate program counter, registers, and stack pointer.
+
+### Why are threads useful
+
+- Each thread can execute the same code but for different portions of the input. Parallelization helps to speed up processes.
+- Threads can execute different parts of the program.
+- Specialization with multiple cores: hotter cache.
+- Efficiency: lower memory requirement and cheaper IPC.
+
+### Are threads useful on a single CPU (or # of threads > # of CPUs)
+
+- If $t_\text{idle} > 2 t_\text{context switch}$, then context switch to hide idling time.
+- When switching between threads, it is not necessary to recreate virtual to physical memory maps (the most costly step). Therefore, $t_\text{thread context switch} << t_\text{process context switch}$.
+- Multithreading is specially useful to high latency in IO operations.
+
+### Benefits to applications and OS code
+
+Multithreaded OS kernel
+
+- threads working on behalf of apps
+- OS-level services like daemons or device drivers
+
+### What do we need to support threads?
+
+- thread data structure: identify threads, keep track of resource usage
+- mechanisms to create and manage threads
+- mechanisms to safely coordinate among threads running concurrently in the same address space
+
+### Threads and concurrency
+
+Processes: Operating in own address spaces. Opearting system prevents overwriting physical addresses.
+
+Threads: They both use the same virtual and physical addresses. Multiple threads can attempt to access the same data at the same time.
+
+### Concurrency Control and Coordination
+
+Synchronization Mechanisms
+
+- Mutual Exclusion
+  - exclusive access to only one thread at a time
+  - mutex
+- Waiting on other threads
+  - specific condition before proceeding
+  - condition variable
+- Waking up other threads from wait state.
+
+### Threads and Thread Creation
+
+- Thread type: thread data structure (threadId, PC, SP, registers, stack, attributes)
+- `Fork(proc, args)`: create a thread, not UNIX fork. `t1 = fork(proc, args)` creates a new thread.
+- `Join(thread)`: terminate a thread.
+
+### Thread Creation Example
+
+```c
+Thread thread1;
+Shared_list list;
+thread1 = fork(safe_insert, 4);
+safe_insert(6);
+join(thread1); // Optional, blocks parent thread
+```
+
+Result can be:
+
+- 4 $\rightarrow$ 6 $\rightarrow$ NIL
+- 6 $\rightarrow$ 4 $\rightarrow$ NIL
+
+How is the list updated?
+
+```
+create new list element e
+set e.value = X
+read list and list.p_next
+set e.point = list.p_next
+set list.p_next = e
+```
+
+### Mutual Exclusion
+
+Mutex data structure:
+
+- whether it's locked
+- owner of mutex
+- blocked threads
+
+Birrell's Lock API
+
+```c
+lock(m) {
+  // critical section
+} // unlock;
+```
+
+Common Thread API
+
+```c
+lock(m);
+// critical section
+unlock(m);
+```
+
+### Making safe_insert safe
+
+```c
+list<int> my_list;
+Mutex m;
+void safe_insert(int i) {
+  lock(m) {
+    my_list.insert(i);
+  } // unlock;
+}
+```
+
+### Producer/Consumer Example
+
+What if the processing you wish to perform with mutual exclusion needs to occur only under certain conditions?
+
+```c
+//main
+for i=0..10
+   producers[i] = fork(safe_insert, NULL) //create producers
+consumer = fork(print_and_clear, my_list) //create consumer
+
+// producers: safe_insert
+lock(m) {
+  list->insert(my_thread_id)
+} // unlock;
+
+// consumer: print_and_clear
+lock(m) {
+  if my_list.full -> print; clear up to limit of elements of list (WASTEFUL!)
+  else -> release lock and try again later
+} // unlock;
+```
+
+### Condition Variable
+
+```c
+// consumer: print and clear
+lock(m) {
+  while (my_list.not_full()) Wait(m, list_full);
+  my_list.print_and_remove_all();
+}
+
+// producers: safe_insert
+lock(m) {
+  my_list.insert(my_thread_id);
+  if my_list.full()
+    Signal(list_full)
+}
+
+```
+
+### Condition Variable API
+
+- Wait(mutex, cond): mutex is automatically released and re-acquired on wait
+- Signal(cond): notify only one thread waiting on condition
+- Broadcast(cond): notify all waiting threads
+
+### Reader/Writer Problem
+
+Readers: 0 or more can access
+Writer: 0 or 1 can access
+
+```python
+if read_counter == 0 and write_counter == 0:
+  read okay, write okay
+if read_counter > 0:
+  read okay
+if write_counter > 0:
+  read no, write no
+```
+
+State of shared file/resource:
+
+- free: resource.counter = 0
+- reading: resource.counter > 0
+- writing: resource.counter = -1
+
+### Reader/Writer Example
+
+```c
+Mutex counter_mutex;
+Condition read_phase, write_phase;
+int resource_counter = 0;
+```
+
+READERS
+
+```c
+Lock(counter_mutex) {
+  while (resource_counter == -1) 
+    Wait(counter_mutex, read_phase);
+  resource_counter++;
+} // unlock;
+
+// ... read data ...
+
+Lock(counter_mutex) {
+  resource_counter--;
+  if (resource_counter == 0)
+    Signal(write_phase)
+} // unlock;
+```
+
+WRITER
+
+```c
+Lock(counter_mutex) {
+  while (resource_counter != 0)
+    Wait(counter_mutex, write_phase);
+  resource_counter = -1;
+} // unlock;
+
+// ... write data ...
+
+Lock(counter_mutex) {
+  resource_counter = 0;
+  Broadcast(read_phase);
+  Broadcast(write_phase);
+}
+```
