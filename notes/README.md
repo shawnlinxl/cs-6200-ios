@@ -737,3 +737,408 @@ $$ \text{Time to Finish 1 Order} \times \text{Ceiling}(\text{num orders}/\text{n
 Pipeline:
 
 $$ \text{time to finish first order} + (\text{remaining orders} \times \text{time to finish last stage})$$
+
+## Threads Case Study: PThreads
+
+PThreads: POSIX Threads
+POSIX: Portable Operating System Interface
+
+### Pthread creation
+
+- `Thread`
+
+  ```c
+  pthread_t aThread; //type of thread
+  ```
+
+- `Fork(proc, args)`
+
+  ```c
+  int pthread_create(
+    pthread_t *thread,
+    const pthread_attr_t *attr,
+    void * (*start_routine)(void *),
+    void *arg
+  );
+  ```
+
+- `Join(thread)`
+
+  ```c
+  int pthread_join(pthread_t thread, void **status)
+  ```
+
+### Pthread Attributes
+
+- `pthread_attr_t`
+
+  - specified in `pthread_create`
+  - defines features of the new thread
+  - has default behavior with NULL in `pthread_create`
+
+- attributes
+
+  - stack size
+  - inheritance
+  - joinable
+  - scheduling policy
+  - priority
+  - system/process scope
+
+- methods
+  ```c
+  int pthread_attr_init(pthread_attr_t *attr);
+  int pthread_attr_destroy(pthread_attr_t *attr);
+  pthread_attr_{set/get}{attribute}
+  ```
+
+### Detaching Pthread
+
+![Detaching Pthreads](img/P2L3.2.png)
+
+```c
+int pthread_detach();
+```
+
+Example
+
+```c
+#include <stdio.h>
+# include <pthread.h>
+
+void *foo (void *arg) { /* thread main */
+  printf("Foobar!\n");
+  pthread_exit(NULL);
+}
+
+int main (void) {
+
+  int i;
+  pthread_t tid;
+
+  pthread_attr_t attr;
+  pthread_attr_init(&attr); // required!
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+  pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM); // share resource with all other threads in the system
+  pthread_create(&tid, &attr, foo, NULL);
+
+  return 0;
+
+}
+```
+
+### Compiling Pthreads
+
+1. `#include <pthread.h>` in main file
+2. compile source with `-lpthread` or `-pthread`
+   ```sh
+   gcc -o main main.c -lpthread
+   gcc -o main main.c -pthread
+   ```
+3. check return values of common functions
+
+### Quiz 1
+
+```c
+#include <stdio.h>
+#include <pthread.h>
+
+#define NUM_THREADS 4
+
+void *hello (void *arg) { /* thread main */
+  printf("Hello Thread\n");
+  return 0;
+}
+
+int main (void) {
+  int i;
+  pthread_t tid[NUM_THREADS];
+
+  for (i = 0; i < NUM_THREADS; i++) { /* create/fork threads */
+    pthread_create(&tid[i], NULL, hello, NULL);
+  }
+
+  for (i = 0; i < NUM_THREADS; i++) { /* wait/join threads */
+    pthread_join(tid[i], NULL);
+  }
+  return 0;
+}
+```
+
+### Quiz 2
+
+```c
+/* A Slightly Less Simple PThreads Example */
+
+#include <stdio.h>
+#include <pthread.h>
+
+#define NUM_THREADS 4
+
+void *threadFunc(void *pArg) { /* thread main */
+  int *p = (int*)pArg;
+  int myNum = *p;
+  printf("Thread number %d\n", myNum);
+  return 0;
+}
+
+int main(void) {
+  int i;
+  pthread_t tid[NUM_THREADS];
+
+  for(i = 0; i < NUM_THREADS; i++) { /* create/fork threads */
+    pthread_create(&tid[i], NULL, threadFunc, &i);
+  }
+
+  for(i = 0; i < NUM_THREADS; i++) { /* wait/join threads */
+    pthread_join(tid[i], NULL);
+  }
+  return 0;
+}
+```
+
+- `i` is defined in main => it's globally visible variable
+- when it changes in one thread => all other threads see new value
+
+### Quiz 3
+
+```c
+/* PThread Creation Quiz 3 */
+
+#include <stdio.h>
+#include <pthread.h>
+
+#define NUM_THREADS 4
+
+void *threadFunc(void *pArg) { /* thread main */
+  int myNum = *((int*)pArg);
+  printf("Thread number %d\n", myNum);
+  return 0;
+}
+
+int main(void) {
+
+  int i;
+  int tNum[NUM_THREADS];
+  pthread_t tid[NUM_THREADS];
+
+  for(i = 0; i < NUM_THREADS; i++) { /* create/fork threads */
+    tNum[i] = i;
+    pthread_create(&tid[i], NULL, threadFunc, &tNum[i]);
+  }
+
+  for(i = 0; i < NUM_THREADS; i++) { /* wait/join threads */
+    pthread_join(tid[i], NULL);
+  }
+
+  return 0;
+}
+```
+
+### Pthread Mutexes
+
+"to solve mutual exclusion problems among concurrent threads"
+
+- `mutex`
+
+  ```c
+  pthread_mutext_t aMutex; // mutex type
+  ```
+
+- `Lock(mutex)`
+
+  ```c
+  // explicit lock
+  int pthread_mutex_lock(pthread_mutex_t *mutex);
+  // run critical section
+  // explicit unlock
+  int pthread_mutex_unlock(pthread_mutex_t *mutex);
+  ```
+
+safe insert example
+
+```c
+list<int> my_list;
+pthread_mutex_t m;
+void safe_insert(int i) {
+  pthread_mutex_lock(m);
+  my_list.insert(i);
+  pthread_mutex_unlock(m);
+}
+```
+
+### Other Mutex Operations
+
+Attributes
+
+```c
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);
+// mutex attributes == specifies mutex behavior when a mutex is shared among processes
+```
+
+Try Lock
+
+```c
+int pthread_mutex_trylock(pthread_mutex_t *mutex);
+```
+
+Destroy
+
+```c
+int pthread_mutex_destroy(pthread_mutex_t *mutex);
+```
+
+### Mutex Safety Tips
+
+- Shared data should always be accessed through a single mutex
+- mutex scope must be visible to all
+- globally order locks
+  - for all threads, lock mutexes in order
+- always unlock a mutex
+  - always unlock the correct mutex
+
+### Pthread Condition Variables
+
+- `Condition`
+
+  ```c
+  pthread_cond_t aCond; // type of cond variable
+  ```
+
+- `Wait`
+
+  ```c
+  int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+  ```
+
+- `Signal`
+
+  ```c
+  int pthread_cond_signal(pthread_cond_t *cond);
+  ```
+
+- `Broadcast`
+
+  ```c
+  int pthread_cond_broadcast(pthread_cond_t *cond);
+  ```
+
+- Others
+
+  - `pthread_cond_init`
+  - `pthread_cond_destroy`
+
+### Condition Variable Safety Tips
+
+- Do not forget to notify waiting threads
+  - predicate change => signal/broadcast correct condition variable
+- When in doubt broadcast
+  - but performance loss
+- You do not need a mutex to signal/broadcast
+
+### Producer/Consumer Example
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+
+#define BUF_SIZE 3    /* Size of shared buffer */
+
+int buffer[BUF_SIZE];    /* shared buffer */
+int add = 0;        /* place to add next element */
+int rem = 0;        /* place to remove next element */
+int num = 0;        /* number elements in buffer */
+
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;    /* mutex lock for buffer */
+pthread_cond_t c_cons = PTHREAD_COND_INITIALIZER; /* consumer waits on this cond var */
+pthread_cond_t c_prod = PTHREAD_COND_INITIALIZER; /* producer waits on this cond var */
+
+void *producer (void *param);
+void *consumer (void *param);
+
+int main(int argc, char *argv[]) {
+
+  pthread_t tid1, tid2;  /* thread identifiers */
+  int i;
+
+  /* create the threads; may be any number, in general */
+  if(pthread_create(&tid1, NULL, producer, NULL) != 0) {
+    fprintf(stderr, "Unable to create producer thread\n");
+    exit(1);
+  }
+
+  if(pthread_create(&tid2, NULL, consumer, NULL) != 0) {
+    fprintf(stderr, "Unable to create consumer thread\n");
+    exit(1);
+  }
+
+  /* wait for created thread to exit */
+  pthread_join(tid1, NULL);
+  pthread_join(tid2, NULL);
+  printf("Parent quiting\n");
+
+  return 0;
+}
+
+/* Produce value(s) */
+void *producer(void *param) {
+
+  int i;
+  for (i=1; i<=20; i++) {
+
+    /* Insert into buffer */
+    pthread_mutex_lock (&m);
+      if (num > BUF_SIZE) {
+        exit(1);  /* overflow */
+      }
+
+      while (num == BUF_SIZE) {  /* block if buffer is full */
+        pthread_cond_wait (&c_prod, &m);
+      }
+
+      /* if executing here, buffer not full so add element */
+      buffer[add] = i;
+      add = (add+1) % BUF_SIZE;
+      num++;
+    pthread_mutex_unlock (&m);
+
+    pthread_cond_signal (&c_cons);
+    printf ("producer: inserted %d\n", i);
+    fflush (stdout);
+  }
+
+  printf("producer quiting\n");
+  fflush(stdout);
+  return 0;
+}
+
+/* Consume value(s); Note the consumer never terminates */
+void *consumer(void *param) {
+
+  int i;
+
+  while(1) {
+
+    pthread_mutex_lock (&m);
+      if (num < 0) {
+        exit(1);
+      } /* underflow */
+
+      while (num == 0) {  /* block if buffer empty */
+        pthread_cond_wait (&c_cons, &m);
+      }
+
+      /* if executing here, buffer not empty so remove element */
+      i = buffer[rem];
+      rem = (rem+1) % BUF_SIZE;
+      num--;
+    pthread_mutex_unlock (&m);
+
+    pthread_cond_signal (&c_prod);
+    printf ("Consume value %d\n", i);  fflush(stdout);
+
+  }
+  return 0;
+}
+```
