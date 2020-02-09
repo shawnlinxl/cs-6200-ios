@@ -525,7 +525,7 @@ READERS
 
 ```c
 Lock(counter_mutex) {
-  while (resource_counter == -1) 
+  while (resource_counter == -1)
     Wait(counter_mutex, read_phase);
   resource_counter++;
 } // unlock;
@@ -556,3 +556,184 @@ Lock(counter_mutex) {
   Broadcast(write_phase);
 }
 ```
+
+### Critical Sections in Readers/Writer Example
+
+![Critical Section](img/P2L2.23.png)
+
+### Critical Section Structure with Proxy Variable
+
+![Critical Section Proxy Variable](img/P2L2.24.png)
+
+### Avoiding Common Mistakes
+
+- Keep track of mutex/conditional variables used with a resource
+  - e.g. mutex_type m1; //mutex for file 1
+- Check that you are always (and correctly) using lock and unlock
+  - e.g. did you forget to lock/unlock? What about compilers?
+- Use a single mutex to access a single resource!
+  - e.g. read and write of the same file has 2 mutexs
+- Check that you are signaling correct condition
+- Check that you are not using signal when broadcast is needed
+  - signal: only 1 thread will proceed... remaining threads will continue to wait... possibly indefinitely!
+- Ask yourself: do you need priority guarantees?
+  - thread execution order not controlled by signals to condition variables!
+
+### Spurious Wake Ups
+
+![Spurious Wake-Ups](img/P2L2.26.png)
+![Unlock Before Broadcast](img/P2L2.26.2.png)
+
+### Deadlocks
+
+Definition:
+
+> Two or more competing threads are waiting on each other to complete, but none of them ever do.
+
+To avoid deadlocks: Maintain lock order across threads, so there is no dead cycles.
+![Deadlocks](img/P2L2.28.png)
+
+In summary:
+
+> A cycle in the wait graph is necessary and sufficient for a deadlock to occur. (edges from thread waiting on a resource to thread owning a resource)
+
+What can we do about it?
+
+- Deadlock prevention (EXPENSIVE)
+- Deadlock detection & recovery (ROLLBACK)
+- Apply the ostrich Algorithm (DO NOTHING!) => if all else fails... just REBOOT
+
+### Kernel vs User-Level Threads
+
+#### One to One Model
+
+![One to One](img/P2L2.32.png)
+
+- **+** OS sees/understands threads, synchronization, blocking
+- **-**
+  - Must go to OS for all operations (may be expensive)
+  - OS may have limits on policies, thread #
+  - portability
+
+#### Many to One model
+
+![Many to One](img/P2L2.32.1.png)
+
+- **+** totally portable, doesn't depend on OS limits and policies
+- **-**
+  - OS has no insights into application needs
+  - OS may block entire process if one user-level thread blocks on I/O
+
+#### Many to Many Model
+
+![Many to Many](img/P2L2.32.2.png)
+
+- **+**
+  - can be best of both worlds
+  - can have bound or unbound threads
+- **-**
+  - requires coordination between user and kernel level thread managers
+
+#### Scope
+
+- System Scope: System-wide thread management by OS-level thread managers (e.g. CPU scheduler)
+- Process Scope: User-level library manages threads within a single process
+
+### Multithreading Patterns
+
+Toy shop example: for each wooden toy order, we:
+
+1. accept the order
+2. parse the order
+3. cut wooden parts
+4. paint and add decorations
+5. assemble the wooden toys
+6. ship the order
+
+#### Boss/Workers Pattern
+
+![Boss/Workers](img/P2L2.35.png)
+
+Boss-Workers:
+
+- boss: assigns work to workers (step 1)
+- workers: performs entire task (step 2-6)
+
+Throughput of the system limited by boss thread => must keep boss efficient
+$$\text{Throughput} = \frac{1}{\text{boss time per order}}$$
+
+**Boss assigns work by**
+
+- directly signalling specific worker
+  - **+** workders don't need to synchronize
+  - **-** boss must track what each worker is doing, and throughput will go down
+- placing work in producer/consumer queue (more often used)
+  - **+** boss doesn't need to know details about workers
+  - **-** queue synchronization: workers need to synchronize access to the queue, etc
+
+**How many workers**
+
+- on demand
+- pool of workers
+  - static or dynamic
+
+Boss-Workers:
+
+- boss: assigns work to workers (step 1)
+- workers: performs entire task (step 2-6)
+- placing work in producer/consumer queue (more often used)
+- pool of workers
+- **+** simplicity
+- **-** thread pool management
+- **-** locality
+
+Boss-Workers Variants:
+
+- all workders created equal vs workers specialized for certain tasks
+- **+** better locality (hotter cache); quality of service management
+- **-** load balancing
+
+#### Pipeline Pattern
+
+![Pipeline Patter](img/P2L2.38.png)
+
+Pipeline:
+
+- threads assigned one subtask in the system
+- entire tasks == pipeline of threads
+- multiple tasks concurrently in the system, in different pipeline stages
+- throughput == weakest link => pipeline stage == thread pool
+- shared-buffer based communication between stages
+
+In summary:
+
+- sequence of stages
+- stage == subtask
+- each stage == thread pool
+- buffer-based communication
+- **+** specialization and locality
+- **-** balancing and synchronization overheads
+
+#### Layered Pattern
+
+![Layered Pattern](img/P2L2.39.png)
+
+Layered:
+
+- each layer group of related subtasks
+- end-to-end task must pass up and down through all layers
+- **+** specialization and locality, but less fine-grained than pipeline
+- **-** not suitable for all applications
+- **-** synchronization
+
+### Time to finish orders
+
+![Process Time](img/P2L2.40.png)
+
+Boss-Worker:
+
+$$ \text{Time to Finish 1 Order} \times \text{Ceiling}(\text{num orders}/\text{num threads}) $$
+
+Pipeline:
+
+$$ \text{time to finish first order} + (\text{remaining orders} \times \text{time to finish last stage})$$
