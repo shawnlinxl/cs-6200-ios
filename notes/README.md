@@ -1142,3 +1142,283 @@ void *consumer(void *param) {
   return 0;
 }
 ```
+
+## Thread Design Considerations
+
+### Kernel vs User-level Threads
+
+- Kernel-level Threading: OS Kernel maintains thread abstraction, scheduling, sync, ...
+- User-level Threading:
+  - User-level library provides thread abstraction, scheduling, sync
+  - different process can use different threading libraries
+- Mappings: one to one, one to many, many to one
+
+### Thread-related data structures
+
+![thread related](img/P2L4.4.png)
+
+### Hard and Light Process State
+
+When two threads point to the same process, there are information in the process control block that are specific to each thread, and there are also information that's shared between these two threads. We split these information into two states:
+
+- "light" process state: specific to each thread. e.g. signal mask, sys call args
+- "hard" process state: shared across threads belong to the same process e.g. virtual address mapping
+
+### Rationale for Multiple Data Structures
+
+Single PCB:
+
+- large continuous data structures
+  - **-** scalability
+- private for each entity
+  - **-** overheads
+- saved and restored on each context switch
+  - **-** performance
+- update for any changes
+  - **-** flexibility
+
+Multiple data structures:
+
+- smaller data structures
+  - **+** scalability
+- easier to share
+  - **+** overheads
+- on context switch only save and restore what needs to change
+  - **+** performance
+- update for any changes
+- user-level library need only update portion of the state
+  - **+** flexibility
+
+### SunOS 5.0 Threading Model
+
+![Sun Threading](img/P2L4.8.png)
+
+### User-level Thread Data Structures
+
+![Light Weight Threading](img/P2L4.8.1.png)
+
+"Implementing Lightweight Threads"
+
+- not POSIX threads, but similar
+- thread creation => thread ID (tid)
+- tid => index into table of pointers
+- table pointers point to per thread data structure
+- stack growth can be dangerous! As OS do not have knowledge of multiple threads, as stack of one thread grows, it can overwrite data for another thread. Debug is hard as cause error in one thread is caused by another thread.
+  - solution => red zone (portion of virtual address space that's not allocated. When thread grows large, it will write to red zone, which will in turn cause a fault. Now it is easier to reason about the fault because the problem is caused directly by the same source.)
+
+### Kernel-level Data Structures
+
+Process
+
+- list of kernel-level threads
+- virtual address space
+- user credentials
+- signal handlers
+
+Light-Weight Process (LWP): similar to ULT, but visible to kernel. Not needed when process is not running
+
+- user level registers
+- system call args
+- resource usage info
+- signal mask
+
+Kernel-level Threads: information needed even when process not running => not swappable
+
+- kernel-level registers
+- stack pointer
+- scheduling info (class, ...)
+- pointers to associated LWP process, CPU structures
+
+CPU
+
+- current thread
+- list of kernel-level thread
+- dispatching and interrupt handling information
+
+![Sun demo](img/P2L4.9.png)
+
+### Basic Thread Management Interactions
+
+- User-level library does not know what is happening in the kernel
+- Kernel does not know what is happening in user-level library
+
+=> System calls and special signals allow kernel and ULT library to interact and coordinate
+
+Also see: `pthread_setconcurrency()`
+
+### Lack of Thread Management Visibility
+
+User-Level library Sees:
+
+- ULTs
+- available KLTs
+
+Kernel sees:
+
+- KLTs
+- CPUs
+- KL scheduler
+
+User level thread has a lock => kernel preempted the thread => none of other user level threads can proceed => kernel cycle through threads, and complete the thread with lock
+
+Many to Many:
+
+- UL Scheduling decisions
+- change ULT-KLT mapping
+
+Invisible to Kernel:
+
+- mutex variable
+- wait queues
+
+Problem: Visibility of state and decisions between kernel and user level library; one to one helps address some of these issues
+
+### How/When does the UL library run>
+
+Process jumps to UL library scheduler when:
+
+- ULTs explicitly yield
+- timer set by UL library expires
+- ULTs call library functions like lock/unlock
+- blocked threads become runnable
+
+ULT library scheduler
+
+- runs on ULT operations
+- runs on signals from timer or kernel
+
+### Issues on multiple CPUs
+
+![multiple cpu](img/P2L4.13.png)
+
+### Synchronization-Related Issues
+
+![spin vs block](img/P2L4.14.png)
+
+### Destroying Threads
+
+- Instead of destroying... reuse threads
+- When a thread exits
+  - put on a death row
+  - periodically destroyed by reaper thread
+  - otherwise thread structures/stacks are reused => performance gains
+
+### Interrupts vs Signals
+
+Interrupts
+
+- events generated externally by components other than the CPU (I/O devices, timers, other CPUs)
+- determined based on the physical platform
+- appear asynchronously
+- external notification to notify CPU some event has occurred
+
+Signals
+
+- events triggered by the CPU and software running on it
+- determined based on the operating system
+- appear synchronously or asynchronously
+
+Interrupts and signals
+
+- have a unique ID depending on the hardware or OS
+- can be masked and disabled/suspended via corresponding mask
+  - per-CPU interrupt mask, per-process signal mask
+- If enabled, trigger corresponding handler
+  - interrupt handler set for entire system by OS
+  - signal handlers set on per process basis, by process
+
+### Visual Metaphor
+
+![visual metaphor](img/P2L4.17.png)
+
+Toyshop example:
+
+- hanlded in specific ways
+  - safety protocols, hazard plans
+- can be ignored
+  - continue working
+- expected or unexpected
+  - happen regularly or irregularly
+
+Interrupt and signal:
+
+- hanlded in specific ways
+  - interrupt and signal handlers
+- can be ignored
+  - interrupt/signal mask
+- expected or unexpected
+  - appear synchronously or asynchronously
+
+### Interrupts
+
+MSI: message signal interruptor
+
+![Interrupts](img/P2L4.18.png)
+
+### Signals
+
+![SIGNALS](img/P2L4.19.png)
+
+Handlers/Actions
+
+- Default Actions
+  - Terminate, Ignore, Terminate and Core Dump, Stop or Continue
+- Process Installs Handler
+  - signal(), sigaction()
+  - for most signals, some cannot be caught
+
+Synchronous Signals
+
+- SIGSEGV (access to protected memory)
+- SIGFPE (divide by zero)
+- SIGKILL (kill, id) can be directed to a specific thread
+
+Asynchronous Signals
+
+- SIGKILL (kill)
+- SIGALARM
+
+### Why disable interrupts or signals?
+
+Sometimes interrupts/signals can create deadlocks.
+
+![interrupt deadlocks](img/P2L4.20.png)
+
+1. keep handler code simple => too restrictive
+2. control interruptions by handler code => use interrupt/signal masks
+   - mask is a sequences of 0s and 1s, e.g. `0 0 1 1 1 0 0 1 1 0 ...`: 0 - disabled, 1 - enabled 
+
+### More on masks
+
+Interrupt masks are per CPU:
+
+- if mask diables interrupt => hardware intterupt routing mechanism will not deliver interrupt to CPU
+
+Signal masks are per execution context (ULT on top of KLT):
+
+- if masks disables signal => kernel sees mask and will not interrupt corresponding thread
+
+### Interrupts on Multicore Systems
+
+- Interrupts can be directed to any CPU that has them enabled
+- may set interrupt on just a single core => avoids overheads and perturbations on all other cores
+
+### Types of signals
+
+One-shot signals
+
+- "n signals pending == 1 signal pending": signal will be handled at least once
+- must be explicitly re-enabled; e.g. the handler has been invoked by signal. Future instances of the signal will be handled by OS default, or ignored. 
+
+Real Time Signals
+
+- "if n signals raised, then handler is called n times"
+
+#### POSIX signals
+
+- `SIGINT` terminal interrupt signal
+- `SIGURG` high bandwidth data is available on a socket
+- `SIGTTOU` background process attempting write
+- `SIGXFSZ` file size limit exceeded
+
+### Handling Interrupts as Threads
