@@ -1442,7 +1442,7 @@ Dynamic Thread Creation is Expensive! Ways to mitigate this cost:
 
 Execute simpler interrupts in the top half, and leave the more complex interrupts in the bottom half, as separate threads.
 
-### Performance of Interrupts as Threads 
+### Performance of Interrupts as Threads
 
 Overall Costs
 
@@ -1521,3 +1521,173 @@ Native POSIX Threads Library (NPTL): one to one model
 Older LinuxThreads: mang to many model
 
 - similar issues to those described in Solaris papers
+
+## Thread Performance Considerations
+
+### Which threading model is better?
+
+6 workers in total, to complete 11 toy orders.
+
+By total execution time, pipeline model is better. However, by average time to complete order, the boss-worker model is better.
+
+Which model is better depends on the goal.
+
+![threading model comparison](img/P2L5.2.png)
+
+### Are threads useful?
+
+Threads are useful because of:
+
+- parallelization => speed up
+- specialization => hot cahce
+- efficiency => lower memory requirement and cheaper to sychronization
+
+Threads hide latency of I/O operations (even on a single CPU)
+
+### What is useful?
+
+Different tasks have different metrics for measuring usefulness. It is important to know the property that matters most.
+
+- For a matrix multiply application => execution time
+- For a web service application =>
+  - number of client requests/time
+  - response time
+  - measure by average, max, min, 95% performance
+- For hardware => hire utilization (e.g. CPU)
+
+### Visual Metaphor
+
+Metrics exist for operating systems and for toy shops.
+
+- Toy Shop
+
+  - Throughput
+    - How many toys per hour?
+  - Reponse time
+    - Average time to react to a new order
+  - Utilization
+    - Percent of workbenches in use over time
+  - Many more ...
+
+- Operating Systems
+  - Throughput
+    - process completion rate
+  - Reponse time
+    - Average time to respond to iput (e.g. mouse click)
+  - Utilization
+    - Percent of CPU
+  - Many more...
+
+### Performance Metrics
+
+Metrics == a measurement standard
+
+- measurable and/or quantifiable property
+  - e.g. execution time
+- of the system we are interested in
+  - e.g. software implementation of a problem
+- that can be used to evaluate the system behavior
+  - e.g. its improvement compared to other implementations
+
+Examples:
+
+- execution time
+- throughput
+- request rate
+- CPU utilization
+- wait time
+- platform efficiency
+- performance per dollar
+- percentage of SLA violations (service level agreement)
+- client-perceived performance
+- aggregate performance
+
+Measurable quantity obtain from
+
+- experiments with real software deployment, real machines, real workloads
+- 'toy' experiments representative of realistic settings
+- simulation
+
+We refer to the above experiment settings as testbeds.
+
+### Are threads useful?
+
+- Depends on metrics
+- Depends on workload
+
+- Different number of toy orders => different implementation of toy shop
+- Different type of graph => different shortest path algorithm
+- Different file patterns => different file system
+
+=> It depends!
+
+### How to best provide concurrency
+
+Multiple threads vs Multiple processes
+
+e.g. Web server: concurrently process client requests
+
+Steps in a simple web server
+
+1. client/browser send request
+2. webserver accepts request
+3. server processing steps
+   a. accept conn
+   b. read request
+   c. parse request
+   d. find file
+   e. compute header
+   f. send header
+   g. read file, send data
+4. respond by sending file
+
+#### Multi-Process Web Server
+
+![multi process server](img/P2L5.10.png)
+
+**+** simple programming
+**-** many processes => high memory usage, costly context switch
+
+#### Multi-Threaded Web Server
+
+![multi threaded server](img/P2L5.11.png)
+
+**+** shared address space, shared state, cheap context switch
+**-** not simple implementation, requires synchronization, underlying support for threads
+
+### Event-Driven Model
+
+Application is implemented in:
+
+- Single address space
+- Single process
+- Single thread of control
+
+![event driven model](img/P2L5.12.png)
+
+Event dispatcher in continuous dispatch loop looks for incoming events and invokes event handlers.
+
+- dispatcher == state machine
+- external events => call handler == jump to code
+
+Handler
+
+- run to completion
+- if they need to block: initiate blocking operation and pass control to dispatcher loop
+
+### Concurrent Execution in Event-Driven Loop
+
+- Multi-Process and Multi-Thread: 1 request per execution context (process/thread)
+- Event-Driven: Many requests interleaved in an execution context
+
+![concurrency in single thread](img/P2L5.13.png)
+
+#### Why does this work?
+
+On 1 CPU "threads hide latency"
+
+- `if (t_idle > 2 * t_ctx_switch)` => context switch to hide latency
+- `if (t_idle == 0)` context switch just wastes cycles that could have been used for request processing
+- Event Driven: Process request until wait necessary then switch to another request
+
+Multiple CPUs => multiple event-driven processes
