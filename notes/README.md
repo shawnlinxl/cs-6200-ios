@@ -1386,7 +1386,7 @@ Sometimes interrupts/signals can create deadlocks.
 
 1. keep handler code simple => too restrictive
 2. control interruptions by handler code => use interrupt/signal masks
-   - mask is a sequences of 0s and 1s, e.g. `0 0 1 1 1 0 0 1 1 0 ...`: 0 - disabled, 1 - enabled 
+   - mask is a sequences of 0s and 1s, e.g. `0 0 1 1 1 0 0 1 1 0 ...`: 0 - disabled, 1 - enabled
 
 ### More on masks
 
@@ -1408,7 +1408,7 @@ Signal masks are per execution context (ULT on top of KLT):
 One-shot signals
 
 - "n signals pending == 1 signal pending": signal will be handled at least once
-- must be explicitly re-enabled; e.g. the handler has been invoked by signal. Future instances of the signal will be handled by OS default, or ignored. 
+- must be explicitly re-enabled; e.g. the handler has been invoked by signal. Future instances of the signal will be handled by OS default, or ignored.
 
 Real Time Signals
 
@@ -1422,3 +1422,102 @@ Real Time Signals
 - `SIGXFSZ` file size limit exceeded
 
 ### Handling Interrupts as Threads
+
+![Sun Interrupt as Thread](img/P2L4.25.png)
+
+Dynamic Thread Creation is Expensive! Ways to mitigate this cost:
+
+- Use dynamic decision when creating interrupts as threads:
+
+  - if handler doesn't lock => execute on interrupted thread's stack
+  - if handler can block => turn into real thread
+
+- Optimization
+
+  - precreate and preinitialize thread structures for interrupt routines
+
+### Top vs Bottom Half of Interrupts
+
+![top and bottom half](img/P2L4.26.png)
+
+Execute simpler interrupts in the top half, and leave the more complex interrupts in the bottom half, as separate threads.
+
+### Performance of Interrupts as Threads 
+
+Overall Costs
+
+- overhead of 40 SPARC instructions per interrupt
+- saving of 12 instructions per mutex
+  - there is no changes in interrupt mask, level ...
+- fewer interrupts than mutex lock/unlock operations => it's a win!
+
+### Threads and Signal Handling
+
+What to do when signal masks between user and kernel level are not in sync?
+![not in sync mask](img/P2L4.27.png)
+
+#### Case 1
+
+Process is safe when user level and kernel level masks are then same.
+![In Sync](img/P2L4.29.png)
+
+#### Case 2
+
+ULT executing has mask 0, KLT has mask 1. Kernel level signal invokes user library handling routine through signal handling table. User library sees which runnable user level thread can handle the signal, and execute that user level thread on the kernel level thread.
+
+![2 threads different mask](img/P2L4.30.png)
+
+#### Case 3
+
+The ULT that has mask = 1 which can handle the signal is already executing on another kernel level thread. In this case, user library handler send a directed signal to the kernel that thread is executing on, which is then passed back to the ULT to handle.
+
+![case 3](img/P2L4.31.png)
+
+#### Case 4
+
+All ULT masks are 0. Threading library will perform system call to change underlying kernel level thread mask to 0. The threading library will reissue the signal again. If it finds another KLT, the kernel level mask will be changed to 0 as well, until all KLT masks are 0 as well.
+
+Optimize common case:
+
+- signals less frequent than signal mask updates
+- system calls avoided: cheaper to update UL mask
+- signal handling more expensive
+
+### Task Struct in Linux
+
+- Main execution abstraction: task
+  - kernel level thread
+- Single-threaded process: one task
+- Multi-threaded process: many tasks
+
+```c
+struct task_struct { // ~ 1.7kb
+  pid_t pid; // task identifier
+  pid_t tgid; // task group id: the task id thats first created for a group of tasks, also used to identify the group
+  int prio;
+  volatile long state;
+  struct mm_struct *mm;
+  struct files_struct *files;
+  struct list_head tasks; // list of tasks that are part of a single process
+  int on_cpu;
+  cpumask_t cpus_allowed;
+}
+```
+
+#### Task Creation: Clone
+
+`clone(function, stack_ptr, sharing_flags, args`
+
+![Thread Creation](img/P2L4.33.png)
+
+#### Linux Thread Model
+
+Native POSIX Threads Library (NPTL): one to one model
+
+- kernel sees each ULT info
+- kernel traps are cheaper
+- more resources: memory ,large range of IDs
+
+Older LinuxThreads: mang to many model
+
+- similar issues to those described in Solaris papers
