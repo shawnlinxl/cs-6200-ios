@@ -1691,3 +1691,175 @@ On 1 CPU "threads hide latency"
 - Event Driven: Process request until wait necessary then switch to another request
 
 Multiple CPUs => multiple event-driven processes
+
+#### Benefits of Event-Driven Model
+
+- Single address space
+- Single flow of control
+- Smaller memory requirement
+- no context switching
+- no synchronization
+
+#### Problem with Event-Driven Model
+
+- a blocking request/handler will block the entire process
+
+Can be solved by aynchronous I/O operations. Aynchronous system call:
+
+- process/thread makes system call
+- OS obtains all relevant info from stack, and either learns where to return results, or tells caller where to get results later
+- process/thread can continue
+
+This requires support from kernel (e.g. threads) and/or device => Fits nicely with event-driven model.
+
+#### What is Async calls are not available?
+
+Helpers:
+
+- designated for blocking I/O operations only
+- pipe/socket based communication with event dispatcher => select()/poll() still ok
+- helper blocks, but main event loop (andd process) will not
+
+Helper THreads/Processes:
+
+- **+** resolves portability limitations of basic event-driven model
+- **+** smaller footprint than regular worker thread
+- **-** applicability to certain classes of applications
+- **-** event routing on multi-CPU systems
+
+### Flash Event-Driven Web Server
+
+- an event-driven webserver (AMPED)
+- with asymmetric helper processes
+
+- helpers used for disk reads
+- pipes used for communication with dispatcher
+- helper reads file in memory (via mmap)
+- dispatcher chekcs (via mincore) if peges are in memory to decide 'local' handler or helper => possible BIG savings
+
+#### Additional Optimizations
+
+- application-level caching (data and computation)
+  - pathname translation cache
+  - response header cache
+  - mapped file cache
+- Alignment for DMA (direct memory access)
+- Use of DMA with scatter-gather => vector I/O operations
+
+### Apache Web Server
+
+![Apache](img/P2L5.19.png)
+
+- core: basic server skeleton
+- jmodules: per functionality
+  - e.g. security features
+- flow of control: similar to event driven model
+
+but
+
+Combination of MP + MT
+
+- each process == boss.worker with dynamic thread pool
+- number of processes can also be dynamically adjusted
+
+### Setting up performance comparisons
+
+- Define comparison points: what systems are you comparing?
+  - MP (each process single thread)
+  - MT (boss-worker)
+  - Single Process Event-Driven (SPED)
+  - Zeus (SPED with 2 processes)
+  - Apache (v1.3.1, MP)
+  => compare against Flash (AMPED model)
+- Define inputs: what workloads will be used?
+  - Used in Flash paper
+    - CS WebServer trace (Rice Univ)
+    - Owlnet trace (Rice Univ)
+    - Synthetic workload
+  - Realistic request workload => distribution of web page accesses over time
+  - Controlled, reproducible workload => trace-based (from real webservers)
+- Define matrics: how will you measure performance?
+  - Bandwidth == bytes/time => total bytes transfered from files/total time
+  - Connection Rate == request/time => total client connnections/total time
+  - Evaluate both as a function of file size
+    - larger file size => ammortize per connection cost => higher bandwidth
+    - larger file size => more work per connection => lower connection rate
+
+### Experiment Results
+
+#### One synthetic file, repeated
+
+- all exhibit similar results
+- SPED has best performance
+- Flash AMPED extra check for memory presence
+- Zeus has anomaly
+- MT/MP extra sync and context switching
+- Apache lacks optimizations
+
+#### Owlnet trace
+
+- trends similar to synthetic 
+- small trace, mostly fits in cache
+- sometimes blocking I/O is required
+  - SPED will block
+  - Flash's helpers resolve the problem
+
+#### CS Trace
+
+- larger trace, mostly requires I/O
+- SPED worst => lack of astnc I/O
+- MT better than MP
+  - smaller memory footprint, more memory to cache files
+  - cheaper to sync
+- Flash best
+  - smaller memory footprint
+  - more memroy for chaching
+  - fewer requests lead to blocking I/O
+  - no sync needed
+
+#### Summary
+
+- When data is in cache 
+  - SPED >> AMPED Flash
+    - unnecessary test for memory presence
+  - SPED and AMPED Flash >> MT/MP
+    - sync and context switching overhead
+- With disk-bound workload
+  - AMPED Flash >> SPED
+    - blocks because no async I/O
+  - AMPED Flash >> MT/MP
+    - more memory efficient and less context switching
+
+### Design relevant experiments
+
+Relevant experiments => statements about a solution, that others believe in, and care for.
+Goals => metrics and configuration of experiments
+
+![Web Server Experiment](img/P2L5.24.png)
+
+#### Picking the right metrics
+
+"Rule of thumb" for picking metrics:
+
+- "standard" metrics => broader audience
+- metrics answering the "why? what? who?" questions
+  - client performance => response time, number of time out reqeuests
+  - operator costs => throughput, costs
+
+#### Picking the right configuration space
+
+- System Resources
+  - hardware (CPU, memory, ...) and software (number of threads, queue sizes)
+  - workload: webserver => request rate, number of concurrent requests, file size, access patter
+  - now pick:
+    - choose a subset of configuration parameters
+    - pick ranges for each variable factor
+    - pick relevant workload
+    - include best/worst case scenarios
+- Pick useful combinations of factors
+  - many just reiterate the same point
+- Compare Apples to Apples
+- Compare system to
+  - state of the art
+  - most common practice
+  - ideal best/worst case scenario
