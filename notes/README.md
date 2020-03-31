@@ -16,7 +16,7 @@ An operating system:
 - Enforces working policies: fair resource access, limits to resource usage
 - Mitigates difficulty of complex tasks: abstract hardware details (system calls)
 
-### Attempt do define an operating system
+### Attempt to define an operating system
 
 Hardwares (CPU, Memory, GPU, Storage, Network Card) are used by multiple applications. The operating system sits in between the underlying hardwares and the applications. It:
 
@@ -1770,7 +1770,7 @@ Combination of MP + MT
   - Single Process Event-Driven (SPED)
   - Zeus (SPED with 2 processes)
   - Apache (v1.3.1, MP)
-  => compare against Flash (AMPED model)
+    => compare against Flash (AMPED model)
 - Define inputs: what workloads will be used?
   - Used in Flash paper
     - CS WebServer trace (Rice Univ)
@@ -1798,7 +1798,7 @@ Combination of MP + MT
 
 #### Owlnet trace
 
-- trends similar to synthetic 
+- trends similar to synthetic
 - small trace, mostly fits in cache
 - sometimes blocking I/O is required
   - SPED will block
@@ -1819,7 +1819,7 @@ Combination of MP + MT
 
 #### Summary
 
-- When data is in cache 
+- When data is in cache
   - SPED >> AMPED Flash
     - unnecessary test for memory presence
   - SPED and AMPED Flash >> MT/MP
@@ -1863,3 +1863,397 @@ Goals => metrics and configuration of experiments
   - state of the art
   - most common practice
   - ideal best/worst case scenario
+
+## Scheduling
+
+### Visual Metaphor
+
+Let an OS scheduler, a toy shop manager schedules work.
+
+When orders come in, a toy shop manger can:
+
+- Dispatch orders immediately
+  - scheduling is simple (FIFO)
+- Dispatch simple orders first
+  - maximize number of orders processed over time
+- Dispatch complex orders first
+  - keep workbenches busy
+
+When tasks come in, an OS scheduler can:
+
+- Assign tasks immediately
+  - scheduling is simple (FCFS First Come First Serve)
+- Assign simple tasks first
+  - maximize throughput (SJF Shortest Job First)
+- Assign complex tasks first
+  - maximize utilization of CPU, devices, memory
+
+### CPU Scheduler
+
+CPU scheduler
+
+- decides how and when processes (and their threads) access shared CPUs
+- shcedules tasks running user-lvel processes/threads as well as kernel-level threads.
+- chooses one of ready tasks to run on CPU
+- runs when
+  - CPU becomes idle
+  - new task becomes ready
+  - timeslice expired timeout
+
+![scheduler](img/P3L1.3.png)
+
+Once a thread is selected by the task scheduler, the thread is dispatched on the CPU: context switch, enter user mode, set program counter and go!
+
+Objective of the schduler is to choose next task to run from ready queue.
+
+- Which task should be selected? Depends on the scheduling policy/algorithm.
+- How is this done? Depdens on the runqueue data structure
+
+The design of the runqueue is tightly coupled with scheduling algorithm.
+
+## Run to Completion Scheduling
+
+As soon as a task is assigned to a CPU, it will run until it finishes.
+
+Initial assumptions:
+
+- group of tasks/jobs we need to schedule
+- known execution times
+- no preemption: once a task is scheduled, it will run until it finishes
+- single CPU
+
+Evaluation metrics:
+
+- throughput
+- avg. job completion time
+- avg. job wait time
+- CPU utilization
+
+First Come First Serve (FCFS)
+
+- schedules tasks in order of arrival
+- runqueue will be a FIFO like queue.
+- scheduler will only need to know where the head of the queue is, and how to deque a task from the queue
+
+> Example
+> T1 = 1s, T2 = 10s, T3 = 1s
+>
+> Throughput = 3/12s = 0.25tasks/s
+> Average Completion time = (1 + 11 + 12)/3 = 8s
+> Average Wait Time = (0 + 1 + 11)/3 = 4s
+
+Shortest Job First (SJF)
+
+- schedules tasks in order of their execution time
+- for previous example, we will execute T1 (1s) -> T3 (1s) -> T2 (10s)
+- runqueue will look like an ordered queue. When tasks are inserted, they will be inserted in a specific order.
+- runque can also looklike a tree. The left most node will always have the least execution time.
+
+> Example
+> T1 = 1s, T2 = 10s, T3 = 1s
+>
+> Throughput = 3/12s = 0.25tasks/s
+> Average Completion time = (1 + 2 + 12)/3 = 5s
+> Average Wait Time = (0 + 1 + 2)/3 = 1s
+
+### Preemptive Scheduling
+
+We relax our previous assumptions. Now tasks can be preempted and do not arrive at the same time.
+
+> Example
+>
+> | Task | Exec Time | Arrival Time |
+> | ---- | --------- | ------------ |
+> | T1   | 1 sec     | 2            |
+> | T2   | 10 sec    | 0            |
+> | T3   | 1 sec     | 2            |
+
+#### SJF + Preemption
+
+- T2 arrives first
+- T2 should be preempted
+- Whenever tasks enter the runqueue, the scheduler need to involved and reschedule tasks.
+
+![preemptive SJF](img/P3L1.6.png)
+
+We do not always have the knowledge about the exact execution time. There for, we need to use some heuristics based on history to estimate what the execution time of a task will be. For example, we can use the past execution time.
+
+- how long did a task run last time
+- how long did a task run last n times (windows average)
+
+#### Priority Scheduling
+
+- Tasks have differetn priority levels.
+- run highest priority task next
+
+> Example
+>
+> | Task | Exec Time | Arrival Time | Priority |
+> | ---- | --------- | ------------ | -------- |
+> | T1   | 1 sec     | 2            | Low      |
+> | T2   | 10 sec    | 0            | Medium   |
+> | T3   | 1 sec     | 2            | High     |
+
+![Priority Based Scheduling](img/P3L1.7.png)
+
+To achieve Priority Scheduling
+
+- use multiple level runqueues: per priority queues
+- use tree structures ordered based on priorities
+
+Issues of priority scheduling
+
+- low priorty task stuck in a runqueue due to constant inflow of higher priority tasks (starvation)
+- starvation can be solved by priority aging, where priority is a function of actual priority and time spent in runqueue
+
+#### Priority Inversion
+
+Assume SJF here.
+
+> Example
+>
+> | Task | Arrival Time | Priority |
+> | ---- | ------------ | -------- |
+> | T1   | 5            | High     |
+> | T2   | 3            | Medium   |
+> | T3   | 0            | Low      |
+>
+> - T3 runs for 3s, and creates a lock.
+> - T2 runs for 2s, and T1 runs for 2s.
+> - T1 needs the lock T3 holds. T1 is preempted, put on a wait queue and T2 runs as long as it needs.
+> - T3 execute until it releases the lock.
+> - T1 becomes runnable, and preempts T3 to continue execution.
+
+![Priority Inversion demo](img/P3L1.9.png)
+
+Based on priority, the order of completion should be T1, T2, T3. However, the actual order of execution is actually T2, T3, and T1. We say priorities are "inverted" in this case. One solution to priority inversion is to temporarily boost the priority of mutex owner.
+
+### Round Robin Scheduling
+
+- pick up first tasks from queue (like FCFS)
+- task may yield, to wait on I/O (unlike FCFS)
+
+> Example
+>
+> | Task | Execution Time | Arrival Time |
+> | ---- | -------------- | ------------ |
+> | T1   | 2              | 0            |
+> | T2   | 2              | 0            |
+> | T3   | 2              | 0            |
+
+![Round Robin](img/P3l1.10.png)
+
+#### Round Robin with Priorities
+
+- include preemption
+
+#### Round Robin with Interleaving
+
+Do not wait for explicit yield. Interrupt tasks at regular time units, and preempt them. We call this technique timeslicing.
+
+![Timeslicing](img/P3L1.10.2.png)
+
+### Timesharing and Timeslices
+
+A timeslice is the maximum amount of uninterrupted time can be given to a task. It is also sometimes referred to as time quantum.
+
+Task may run less than timeslice time. For example, it has to wait on I/O, synchronization, and will be preempted and placed on a queue. In the cases where we have priorities, higher priority tasks become runnable.
+
+Using timeslices allows tasks to be interleaved and timesharing the CPU.
+
+- CPU bound tasks can only be preempted after timeslice
+
+> Example: Round Robin Time Scheduling with timeslice = 1
+>
+> ![RR ts = 1](img/P3L1.11.png)
+
+Round robind with timeslices is able to achieve similar performance as SJF without knowing how long the task will take in advance.
+
+Benefits:
+
+- short tasks finish sooner
+- more responsive
+- length I/O operations can be initiated and executed sooner
+
+Downsides:
+
+- Overheads for performing intterupt, scheduling and context switch (this will cause the actual thoughpput to go down, average wait time and average completion time to go up a little bit)
+- To alleviate this overhead cost, we should keep the length of the time slice >> context_switch_time
+
+### How long should a timeslice be?
+
+We need to balance benefits and overheads. The balance differs between:
+
+- I/O bound tasks
+- CPU bound tasks
+
+#### CPU Bound Timeslice Length
+
+- 2 tasks, exec time = 10s
+- ctx siwtch time = 0.1s
+
+Timeslice = 1 second
+
+- throughput = 2 / (10 + 10 + 19\*0.1) = 0.091 tasks/second
+- avg. wait time = (0 + (1+0.1)) / 2 = 0.55 seconds
+- avg. comp. time = 21.35 seconds
+
+Timeslice = 5 seconds
+
+- throughput = 2 / (10 + 10 + 3\*0.1) = 0.098 tasks/second
+- avg. wait time = (0 + (5+0.1)) / 2 = 3.05 seconds
+- avg. comp. time = 17.75 seconds
+
+Timeslice = $\infty$
+
+- throughput = 2 / (10 + 10) = 0.1 tasks/second
+- avg. wait time = (0 + (10)) / 2 = 5 seconds
+- avg. comp. time = (10 + 20)/2 = 15 seconds
+
+**For CPU bound tasks, larger timeslice is better.**
+
+#### I/O Bound Timeslice Length
+
+- 2 tasks, exec time = 10s
+- ctx siwtch time = 0.1s
+- I/O operations issued every 1s
+- I/O completes in 0.5s
+
+Since I/O operations are issued every 1s, CPU is always released from the thread after 1s. So ts = 1 and ts = 5 perform similarly.
+
+Now consider only T2 is I.O bound. T1 will run 5s, T2 will run 1s and becomes I/O bound, then T1 runs for another 5s, and then T2 runs until it completes.
+
+**For I/O bound tasks, smaller timeslice is better.**
+
+#### Summary
+
+CPU bounds tasks prefer longer timeslices. This enables us to
+
+- limit context switching overheads
+- keeps CPU utilization and throughput high
+
+I/O bound tasks prefer shorter timeslices. This allows
+
+- I/O bound tasks can issue I/O operations earlier
+- keeps CPU and device utilization high
+- better user-perceived performance
+
+### Runqueue Data Structures
+
+Regardless of the data structure, it should be easy for the task scheduler to find the next task to run. If we want I/O and CPU bound tasks to have different timeslice values, then we can either:
+
+- maintain the same runqueue, but allow the scheduler to check task type
+- separate different tasks to two different strucutres
+
+#### Dealing with different timeslice values
+
+Multi-queue data structure:
+
+![multi queue data structure](img/P3L1.17.png)
+
+I/O bound tasks will be started as soon as they come in, due to their highest priority. CPU bound tasks are allowed to run until finishes to minimize context switching overheads.
+
+- Timeslicing benefits provided for I/O bound tasks.
+- Timeslicing overheads avoided for CPU bound tasks.
+
+How do we know if a task is CPU or I/O intensive?
+How do we know how I/O intensive a task is?
+
+- we can use some history based heuristics
+
+What about new tasks?
+What about tasks that dynamically change phases in their behavior?
+
+- we treat the three queues as one data structure.
+
+![treat as one queue](img/P3L1.17.2.png)
+
+1. Tasks enter topmost queue. We assume it's the most I/O demanding task.
+2. If:
+   i. task yields voluntarily: it's a good choice and we'll keep task at this level.
+   ii. if task uses up entire timeslice: it's more CPU intensive than we thought. Push down to lower level.
+3. Keep pushing down the level if the task is more CPU intensive, until it reaches the lowest level.
+4. Task in lower queue gets priority boost when releasing CPU due to I/O waits
+
+The resulting structure is called the **multi-level feedback queue (MLFQ)** -- Fernando Corbato
+
+MLFQ is not priority queues.
+
+- It uses different scheduling mechanism of threads at each level
+- The structure includes feedback mechanism to adjust which level a task is in
+
+### Linux O(1) Scheduler
+
+O(1) schedule is able to select, add tasks in constant time, regardless of task count. It's a preemptive, priority based scheduler. Priorities are separated into 2 classes:
+
+- Priority 0-99: realtime class
+- Priority 100-139: timesharing class
+
+All user processes have one of the timesharing class priority. They default to 120, and can be adjust with by nice value (-20 to 19).
+
+O(1) borrows from MLFQ in the data structure.
+
+- It uses different timeslice values for different priorities: smallest for low priority, and highest for high priority.
+- Feedback is based on:
+  - sleep time: waiting/idling time. Longer sleep time will interactively boost the priority by -5. Smaller sleep time means it's more computational intensive (always using the CPU), the the priority will be lowered by +5 until it reaches lowest priority (139).
+
+Runqueue of O(1) uses 2 arrays of task queues. Each array element points to the first runnable task at the corresponding priority level.
+
+Active queue is:
+
+- used to pick next task to run
+- constant time to add/select: find the first priority level that has time on it
+- tasks remain in queue in active array until timeslice expires
+
+Expired queue:
+
+- is an inactive list
+- when no more tasks in active array: active array and expired arrays are swapped
+
+O(1) is introduced in Linux 2.5 by Ingo Molnar. But, workloads changed (more video streaming, etc). It is replaced by CFS in 2.6.23 also by Ingo Molnar.
+
+Problems with O(1):
+
+- performance of interactive tasks: once a task is placed on the expired list, it cannot be rescheduled until all tasks on the active queue has executed for their timeslice time.
+- fairness: no fairness guarantees (in a time interval, tasks should be able to run for a time proportional to their priorities)
+
+### Completely Fair Scheduler
+
+Runqueue uses a **red-black tree** structure. It is the default scheduler for all non-real time tasks. It belongs to a dynamic tree structure. When elements are added to the tree, it will automatically rebalance itself.
+
+The runqueue is:
+
+- ordered by "virtual runtime (vruntime"
+- virtual run time is the time spent on the CPU
+- Tasks on the left has spend less time on the CPU, therefore should be scheduled more often
+
+![Red Black Tree](img/P3L1.19.png)
+
+CFS scheduling:
+
+- always pick leftmost node
+- periodically adjust vruntime
+  - Compare current running task to leftmost vruntime:
+    - if smaller, continue running
+    - if larger, preempt and place appropriately in the tree
+- vruntime progress rate depends on priority and _niceness_
+  - rate faster for low-priority
+  - rate slower for high-priority (time pass more slowly)
+  - same tree for all priorities
+
+Performance:
+
+- Select task: O(1)
+- Add task: O(log N), okay for current workload, may need to replace in the future
+
+### Scheduling on Multiprocessors
+
+#### Shared memory multiprocessor (SMP):
+
+![SMP](img/P3L1.21.png)
+
+
+
+#### Multicore
+
+![multicore](img/P3L1.21.2.png)
