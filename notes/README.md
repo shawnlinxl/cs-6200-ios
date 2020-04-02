@@ -2630,4 +2630,308 @@ Virtual to physical memory mapping can be performed using segments. The process 
 
 A segment could be represented with a contiguous portion of physical memory. THe segment would be defined by its base address and its limit registers, which implies also the segment size. We can have segments with different size using this method.
 
-In practice, segmentation and paging are used together.
+In practice, segmentation and paging are used together. The linear address produced by the segmentation process is then passed to the paging unit to compute the actual physical address.
+
+- Intel Architecture x86 32bit: both segmentation and paging are allowed
+  - Linux: up to 8k per process/global segmentation
+- Intel Architecture x86 64bit: default to just use paging
+
+### How large is a page
+
+10-bit offset: 1kb page size
+12-bit offset: 4kb page size
+
+**Linux/x86**:
+
+- 4kB (popular and the default),
+- 2MB (large pages, 21 bits offset),
+- 1GB (huge pages, 30 bits offset)
+- One benefit for large page size is more bits in the address are used for these offset bits, and fewer bits are used to represent the virtual page number, so there will be fewer entries that are needed in the page table. Use of these large page sizes will significantly reduce the size of the page table. (Large reduce page table size by factor of 512, huge by factor of 1024)
+- If large memory page is not densely populated, there will be a larger unused gaps with the page itself, and that will lead to internal fragmentation. Because of this issue, smaller page sizes of 4kB are commonly used.
+- There are some settings like in memory databases where large and huge page sizes are necessary and make most sense.
+
+Solaris/SPARC: 8kB, 4MB, 2GB
+
+In summary, larger pages will lead to:
+
+**+**: fewer page table entries, smaller page tables, more TLB hits
+**-**: internal fragmentation, hence wasted memory
+
+### Memory Allocation
+
+Memory allocation is the job of the memory allocation mechanisms that are part of the memory management subsystem of an operating system.
+
+Memory allocation incorporates mechanisms that decide:
+
+- VA to PA mapping: what are the physical pages that will be allocated to particular virtual memory regions.
+  - Once mapping is established, address translations and page tables are used to determine a physical addresss from a virtual address taht the process presents to the CPU, and also perform all checks regarding validity of the access or permissions.
+
+**Kernel level allocators**
+
+- responsible for allocating memory regions, such as pages and various components of the kernel state, for the kernel
+- used for certain static process state, e.g. code, stack
+- keep track of free memory
+
+**User level allocators**
+
+- dynamic process state (e.g. heap), the state that's dynamically allocated during the process execution.
+- Basic interface includes malloc and free. They request from the kernel some amount of memory from its free pages, and release when they are done. Once kernel allocates memory to a malloc call, the kernel is no longer involved in the management of that space.
+
+### Memory Allocation Challenges: external fragmentation
+
+Consider a page based memory manager that needs to manage 16 physical page frames.
+
+- Requests are: alloc(2), alloc(4), alloc(4), alloc(4) frames. There are 2 free page frames left after the request. Memory looks like 1111111111111100.
+- Say we free(2), we have 0011111111111100
+- Next request is alloc(4). There are 4 free pages but the allocator cannot satisfy the request, as the pages are not contiguous.
+
+This is a problem called external fragmentation. This occurs where we have multiple interleaved allocate and free operations, and as result we have holes of free memory that's not contiguous.
+
+Alternatively, we can allocate not immediately after the first allocation, so the memory will look like
+
+1100111111111111. When we free(2) in this case, first 2 pages are freed and we can satisfy alloc(4).
+
+When pages are freed, there's an opportunity for the allocator to coalese, to aggregate adjacent areas of free pages into one larger free area.
+
+### Allocators in the Linux Kernel
+
+Linux kernel uses 2 allocators. The buddy allocator and the slab allocator.
+
+**Buddy allocator**:
+
+- starts with consecutive memory region that's free that's of a size $2^x$.
+- On request, the allocatorwill subdivide this large area in to $2^x$ chunks and find smallest $2^x$ chunk that can satify request.
+
+![buddy](img/P3L2.17.png)
+
+1. alloc(8) request
+2. Divided from 6r to 2\*32
+3. Divided 32 to 2\*16
+4. Divided 16 to 2\*8, and allocate 8 to request
+5. Another alloc(8) request, allocate the other 8 to request
+6. alloc(4) request, devide the other 16 to 2\*8
+7. Devide 8 into 2\*4, and allocate 4 to request
+8. Free(8), segmented 8 is produced
+9. Free(8), 2\*8 segments are combined into 16
+
+Fragmentation still exists in the buddy allocator, but when a request is freed, it checks its buddy to see if they can be aggregated into a larger chunk.
+
+**+**
+
+- Aggregation of the free areas can be performed well and fast.
+- The checking of the free areas can further be propagated up the tree.
+
+**Slab allocator**:
+
+The allocator builds custom object caches on top of slabs. The slabs represent contiguously allocated physical memory. When the kernel starts, it precreates caches for different object types. e.g. task_structure. When an allocation comes from a particular object type, it will go straight to the cache and use one of the elements in this cache. If none of the entries in the cahce is available, the kernel will create another slab and it will preallocate an additional portion of contiguous physical memory to be managed by this slab allocator.
+
+![Slab allocator](img/P3L2.17.2.png)
+
+**+**
+
+- internal fragmentation is avoided
+- external fragmentation is not an issue: future requests will be of a matching size and then they can be made to fit in these gaps
+
+### Demand Paging
+
+Since physical memory is much smaller than virtual memory:
+
+- allocated pages don't always have to be present in physical memory
+- backing physical page frame can be repeatedly saved and restored to/from secondary storage (e.g. disks)
+
+This process is referred to as demand paging, and traditionally with demand paging, pages are moved between main memory and a swap partition (e.g. on disk).
+
+1. When page is not present in memory, its present bit in the page table is set to 0
+2. When there is a reference to that page, the MMU will raise an exception that will cause a trap into the OS kernel
+3. OS kernel can determine that exception is a page fault, and determine that it ahd previously swapped out this memory page onto disk. It then establish what is the correct disk acceess that needs to be performed. It will issue an I/O operation to retrieve this page.
+4. Once page is brought into memory, OS will determine a free frame where this page can be placed.
+5. It can use the page frame number for that page to appropriately update the page table entry that corresponds to the virtual address of that page.
+6. Control is pushed back into the process that caused this reference, and the program counter will be restarted with the same instruction.
+7. This time, page table will find a valid entry with a reference to the udpated physical location.
+
+If we require a page to be constantly present in memory, or require it to maintain the same physical address during its lifetime, then we'll have to **pin** the page, and disable swapping.
+
+### Page Replacement
+
+When should pages be swapped out?
+
+- Periodically when the amount of occupied memory reaches a threshold, the OS will run some page(out) daemon that will look for pages that can be freed
+- Swap when memory usage is above threshold
+- Swap when CPU usage is below threshold (not to disrupt execution)
+
+Which pages should be swapped out?
+
+- pages that won't be used in the future
+- history-based prediction (e.g. Least-Recently Used): it uses the access bit to keep track of whether the page is referenced
+- pages that don't need to be written out to disk: dirty bit to track if page is modified
+- avoid non-swappable page
+
+In Linux:
+
+- parameters to tune thresholds: target page count
+- categorize pages into different types: claimable, swappable
+- "second chance" variation of LRU: 2 sets of scans before making the decision
+
+### Copy on Write
+
+MMU hardware can be used for some other services and optimizations beyond address translation.
+
+On process creation
+
+- copy entire parent process address space
+- many pages are static and don't change (so why create multiple copies)
+
+On create
+
+- map new VA to original page
+- write protect original page
+- if prcess only need to read from memory: save memory and time to perform the copy
+- If a write request is issued:
+  - page fault and copy
+  - pay copy cost only if necessary
+
+### Checkpointing
+
+Checkpointing is used as part of the failure and recovery management. The idea is to periodically save the entire process sate. The failure may be unavoidable, however with checkpointing, the process doesn't have to be restarted from the beginning. And recovery will be much faster.
+
+- Simple approach: Pause the execution and copy its entire state.
+- Better approach: take advantage of the hardware support for memory management and optimize the disruption checkpointing will cause on execution.
+  - We can write protect the entire address space of the process and copy everything at once.
+  - copy diffs of "dirtied" pages for incremental checkpoints: recovery can be complex since we have to rebuild using multiple diffs; or in the background we can aggregate diffs to build more complete checkpoints of the process
+
+### From checkpointing to other services
+
+#### Debugging
+
+- Rewind-Replay
+- Rewind: restart from checkpoint, and move forward to see if we can reestablish the error
+- We can gradually go back to older checkpoints until error can be found
+
+#### Migration
+
+- checkpoint the process to another machine and restart on another machine
+- useful for
+  - disaster recovery
+  - consolidation in data centers when we try to migrate processes and load onto as machines as possible to save on power and energy, or to utilize resources better.
+- repeated checkpoints in a fast loop until pause-and-copy becomes acceptable
+
+## Inter-Process Communications
+
+### Visual Metaphor
+
+IPC is like working together in the toy shop.
+
+- Workers share work area
+  - communicate by leaving parts and tools on the table to be shared among them
+- Workers call each other
+  - explicitly request and respond
+- Requires sychronization
+  - e.g. I'll start when you finish
+
+IPC
+
+- Processes share memory
+  - processes can have a portion of physically shared memory, any data they both need access will be placed into this memory
+- Processes can exchange messages
+  - message passing via sockets
+- Requires synchronization
+  - mutexes, waiting...
+
+### Inter-Process Communication (IPC)
+
+IPC refers to a set of mechanisms that OS supports in order to permit multiple processes to interact amongst each other. To synchronize, coordiante and communicate all aspects of interaction.
+
+- message passing IPC:
+  - sockets, pipes, message queues
+- memory based IPC:
+  - sahred memory, memory mapped files
+- higher-level semantics: mechanisms that support more than simply a channel for coordinate and communicate, that supports additional protocals
+  - files, RPC (remote procedure calls)
+- synchronization primitives
+
+### Message passing IPC
+
+Processes create messages and then send or receive them.
+
+- OS creates and maintains a channel: buffer/FIFO queue or other data structure for messaging.
+- OS provides interface to processes so they can pass messages via the channel - a port
+  - processes send/write messages to a port
+  - processes receive/read messages from port
+
+OS kernal is required to
+
+- establish the communication channel
+- perform every single IPC operation
+- send: system call + data copy
+- recv: system call + data copy
+
+Request response interaction requires 4 user/kernel crossing and 4 data copies.
+
+Sumamry
+
+**+**: simplicity: kernel does channel management and synchronization
+**-**: overheads
+
+### Forms of Message Passing
+
+#### Pipes (also part of the POSIX standard)
+
+Pipes are characterized by 2 end points, so only two processes can communicate. There is no notion of a message. Instead, there's just a stream of bytes that pushed into the pipe from one process and then received into another.
+
+Use case example: connect output from one process to input of another
+
+#### Message Queues
+
+Message queues understand the notion of messages that they transfer. Sending process must submit a properly formatted message to the channel, and channel will deliver a properly formatted message to the receiving process.
+
+OS level functionaly regarding message queues also include:
+
+- priorities of messages
+- scheduling the way messages are being delivered
+
+APIs on UNIX: SysV and POSIX
+
+#### Sockets
+
+The notion of ports that's required in message passing IPC mechanisms is the socket abstraction that's supported by the OS.
+
+- `send()`, `recv()` via API to send message buffers in and out of the in kernel communication buffer
+- `socket()` create kernel-level socket buffer
+- It will associate and necessary kernel-level processing that needs to be performed along with the message movement (e.g. TCP/IP)
+
+If the two processes are one different machines, channel between process and network device.
+If same machine, bypass full protocal stack.
+
+### Shared Memory IPC
+
+Processes read and write to shared memory region.
+
+- OS establishes shared channel between the processes
+  - physical pages mapped into virtual address space
+  - VA(P1) and VA(P2) map to the same physical address
+  - the virtual address region that correspond to that shared memory buffer don't need to have the same virtual addresses
+  - the pyhsical memory thats backing the shared memory buffer doesn't need to be contiguous
+
+**+**
+
+- system calls only for setup
+- data copies potentially reduced (not eliminated)
+
+**-**
+
+- shared memory can be concurrently accessed by both processes. Processes must explicityl synchronize shared memory operations
+- programmer's responsibility to determine communication protocol related issues
+
+APIs:
+SysV API, POSIX API, memory mapped files, Android ashmem
+
+### Message vs Shared Memory IPC
+
+Goal: transfer data from one into target address space
+
+In message passing, this requires that the CPU is involved in copying the data. CPU cylces are used.
+
+In share memory case: CPU cylces are need to map memory into address space, and copy the data into channel when necessary
+
+- set up once use many times, and therefore good payoff
+- can perform well for 1 time use, in particular when we need to move large amount of data from one address space to another, t(copy) >> t(map)
