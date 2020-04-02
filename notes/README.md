@@ -2252,8 +2252,382 @@ Performance:
 
 ![SMP](img/P3L1.21.png)
 
+- **Cache-affinity is important**: If a task is scheduled on one CPU, it will slowly bring all the states it need from memory to its cache, hence making its cache hotter. If at this time, we reschedule it to another CPU, then this new CPU will need to again bring all the information it need to the cache.
 
+  - Try to schedule the task on the CPU it was scheduled before
+  - Keep tasks on the same CPU as much as possible
+  - hierachical scheduler architecture: Per-CPU runqueue and scheduler
+    - load balance across CPUs based on queue length or when CPU is idle
+
+Non-Uniform Memory Access (NUMA)
+
+- multiple memory nodes:
+- memory node closer to a "socket" of multiple processors:
+  - access to local memory node will be faster than access to remote memory nodes
+  - keep tasks on CPU closer to memory node where their states are
+  - This type of scheduling is called NUMA-aware scheduling
 
 #### Multicore
 
 ![multicore](img/P3L1.21.2.png)
+
+#### Hyperthreading
+
+The reason why we have to context switch among threads is because the CPU has only one set of register to describe the current active execution context.
+
+Multiple sets of registers, each can describe the context of a separate thread: hide latency due to context switching.
+
+- multiple hardware-supported execution contexts
+- still 1 CPU but with _very fast_ context switch: just switch register, nothing has to be asved or restored
+
+Referred to as:
+
+- hardware multithreading
+- hyperthreading
+- chip multithreading (CMT)
+- sumultaneous multithreading (SMT)
+
+Assume we have 2 registers in one CPU. Which 2 threads should the scheduler schedule on the 2 registers?
+
+**if (t_idle > 2 \* t_ctx_switch) {context switch to hide latency}**
+
+- SMT ctx_switch - O(cycles)
+- memory load - O(100 cycles)
+
+Therefore, hyperthreading can hide memory access latency.
+
+What kinds of threads should we co-schedule on hardware threads?
+
+### Threads and SMT
+
+Assumptions
+
+1. thread can issue instruction on each cycle. max instruction per cycle = 1
+2. memory access = 4 cycles. Memory bound process will experience idle cycles
+3. Hardware switching is instantaneous (context switching)
+4. SMT with 2 hardware threads
+
+#### Co-schedule compute bound threads
+
+- threads "interefere", content for CPU pipeline resource
+- for each thread, performance degrades by factor of 2
+- memory controller is idle
+
+#### Co-schedule memory-bound threads
+
+- Idle CPU cycles
+
+#### Co-schedule compute-and-memory-bound threads
+
+- mix of CPU and memory intensive threads
+- avoid/limit contention on processor pipeline
+- all components (CPU and memory) are well utilized (still leads to interference and degradation but minimal)
+
+### How odo we know if a process is CPU-bound or Memory-bound
+
+Use historic information.
+
+Sleep time won't work:
+
+- the thread is not sleeping when waiting on memory
+- software takes too much time to compute the sleep time
+
+We need hardware-level information/support to answer this question.
+
+Modern hardware has hardware counters that get updated a the tprocessor is executing and keep information about various aspects of the execution. This include:
+
+- L1, L2, Last Level Cache misses
+- IPC
+- power and energy data
+
+Sotware interface and tools can be used to access hardware counters:
+
+- oprofile, Linux perf tool
+- oprofile website lists available hardware counters on different architectures
+
+Many practical as well as research based scheduling techniques rely on the use of hardware counters to understand something about the requirements of the threads in terms of the kinds of resources that they need. The scheduler can use that information to pick a good mix of the threads that are available in the runqueue to schedule on the system so that of all of the components of the system are well utilized.
+
+- look at a counter like the last level cache misses and using this counter and decide a thread is memory bound (footprint doesn't fit in the cache)
+- counter can also tell scheduler that something changed in the execution of the thread so that now it's executing with some different data in a different phase of its execution and running with a cold-cache
+
+One counter can tell us different information about the thread. So from hardware counters, we estimate what kind of resources a thread needs.
+
+Scheduler can make informed decisions regarding the workload mix it needs to select:
+
+- typically uses multiple counters' information to build a more accurate picture of resource needs
+- models with per architecture thresholds
+- based on well-understood workloads
+
+### Is Cycles-per-Instruction Useful?
+
+Memory-bound threads have high CPI, and CPU-bound tasks have 1 or low CPI
+
+#### Fedora
+
+Testbed
+
+- 4 cores and 4-way SMT
+- total of 16 hardware contexts
+
+Workload
+
+- CPI of 1, 6, 11, 16
+- 4 threads of each kind
+
+Metric == IPC
+
+- max IPC = 4
+
+![paper result](img/P3L1.25.png)
+
+With mixed CPI: processor pipeline well utilized, and high IPC
+With same CPI: contention on some cores, and wasted cycles on other cores
+
+Although in theory CPI looks ideal, in reality real workloads do not present too much distinction in CPI values.
+
+Takeaways:
+
+- Resource contention in SMTs for processor pipeline
+- hardware counters can be used to characterize workload
+- shcedulers should be aware of resource contention, not just load balancing
+
+P.S. LLC usage would have been a better choice.
+
+## Memory Management
+
+### Visual Metaphor
+
+**Operating systems** and **toy shops** each have memory/part managemetn systems.
+
+#### Toy shop
+
+- Uses intelligently sized containers
+
+  - crates of toy parts
+
+- Not all parts are needed at once
+
+  - toy orders completed in stages
+
+- optimized for performance
+  - reduce wait time for parts, then we can make more toys
+
+#### Operating System
+
+- Uses intelligently sized containers
+  - memory pages or segments
+- Not all memory is needed at once
+  - tasks operate on subset of memory
+- Optimized for performance
+  - reduce time to access state in memory, hence better performance
+
+### Memory Management
+
+One of the role of the operating system is to manage physical resoruces. In this case, DRAM, On behalf of one or more executing processes. In order to not to post any limits on the size and layout of an address space based on the amount of physical memory or how it's shared with other processes, we decouple the notion of physical from the virtual memory that's used by the address space.
+
+Pretty much everything uses virtual addresses, and these are translated to the actual, physical address spaces where the particular state is store. The range of the virtual adresses, from V0 to Vmax, establishes the amount of virtual memory that's visible in the system. This can be much larger than the physical memory.
+
+In order to manage the physical memory, the operating system must then be able to allocate physical memory and arbitrate how it's being accessed.
+
+Allocation requires that the OS incorporates certain mechanisms or an algorithms as well as data structures so it can tracks how the physical memory is being used. OS must have mechanisms to decide how to swap data on memory and data in temporary storage.
+
+Arbitration requires the OS is quickly able to intepretate and and verify a process memory access.
+
+#### Page-based memory managment (dominant method)
+
+Virtual memory is divided into fixed sized segments that are called pages. The physical memory, is divided into page frames of the same size. Allocation is mapping pages from the virtual memory to page frame of the physical memories. Arbitration of the access is done via page tables.
+
+#### Segment-based memory management
+
+Allocation doesn't use fix-sized pages. It uses more flexibly sized segments that can be mapped to some regions in physical memory as well as swapped in and out of physical memory. Arbitration of accesses in order to either translate or or validate the appropriate access uses segment registers.
+
+####sHardware support
+
+Hardware has evolved to integrate mechanism to make it easier, fater, and more reliable to perform allocation and arbitration tasks.
+
+- CPU package is equipped with a memory management unit (MMU):
+
+  - translate virtual to physical addresses
+  - report faults: illegal access, inadequate permission, not present in memory
+
+- Using designated registers during address translation process
+
+  - page based: pointer to page table
+  - segment based: base and limit size, number of segments
+
+- Cache - Translation Lookaside Buffer (TLB)
+
+  - cache of valid virtual to physical address translations
+  - translation is faster if translation is present in the cache
+
+- Translation
+  - OS maintains page tables, but hardware performs actual translation from physical to virtual address
+  - hardware will dictate what type of memory management modes are supported
+
+### Page Tables
+
+Page table is the component that's used to translate the virtual memory addresses into physical memory addresses.
+
+For each virtual address, an entry in the page table is used to determine the actual physical location that corresponds to that virtual address.
+
+By keeping the size of virtual memory and physical memory pages same, we don't have to keep track of the translation of every single individual virtual address. We can only translate the first virtual address in the page. The remaining will map to the offsets in the physical memory page frame. In this way, we can reduce the number of entries we have to maintain in the page table. Only the first portion of the virtual address is used to indextinto the page table. We can this part of the virtual addresss the **virtual page number**, and the rest of the virtual address the **offset**.
+
+The virtual page number is used as an offset into the page table, and that will produce the **physical frame number**, and that is the physical address of the physical frame in DRAM. To complete the translation, the physical frame number needs to be sent with the offset that's specified in the later part of the physical address.
+
+Imagine a case we've allocated virtual address for an array, but has never accessed it before. The first time we access the virtual memory, the OS will realize there isn't physical memory that correspond to the range of virtual memory addresses. It will take a page of physical memory thats free, and establish a mapping between this vritual address. This method of allocating on first access is referred to as **allocation on first touch**. This makes sure physical memory is allocated only when it's really needed.
+
+If a process hasn't used its memory pages for a long time, and it's likely that those pages will be reclaimed. In order to detect this, page tables ahve a number of bits that tell the memory management system something about the validity of the access.
+
+- Unused pages == reclaimed
+- mapping becomes invalid
+- hardware will fault
+- reestablish on reaccess, most likely now at a different physical location
+- entry in the page table needs to be updated
+
+Page tables are created
+
+- OS maintains per process
+- on context switch, OS needs to switch to valid page table
+- hardware update register to point to the correct page table (e.g. CR3 on x86)
+
+### Page Table Entry
+
+Page Table Entry has
+
+- Page Frame Number (PFN)
+- Flags:
+
+  - Present bit (valid/invalid)
+  - Dirty bit (gets set whenever memory is written to)
+  - Accessed bit (whether page has been accessed for read or write)
+  - Protection bit (R,W,X)
+
+![x86 page table](img/P3L2.6.png)
+
+### Page Fault
+
+The MMU uses the page table entries not just to perform the address translation, but also relies on bits to establish the validity of the access. If the hardware determines that a physical memory access cannot be performed, it generates a page fault. CPU will place an error code on kernel stack, and it will generate a trap into the OS kernel.
+
+In turn, a page fault handler is genreated. It will determine action based on error code and faulting address. Key pieces of information in this error code will include
+
+- whether or not the fault the page was not present: bring page from disk to memory
+- because permission protection that was violated (SIGSEGV)
+
+On x86
+
+- error code from page table entry flags
+- faulting address in CR2
+
+## Page Table Size
+
+A page table has number of entries that is equal to the number virtual page numbers that exist in a virtual address space.
+
+32-bit architecture
+
+- Page Table Entries: 4 bytes, including PFN + flags
+- Virtual Page Number (VPN): $2^32$/Page Size
+- Page Size: 4KB (can also be 8kb, 2MB, 4MB, ...)
+
+Page table size in this case is $2^32/2^12$ \* 4B = 4MB
+
+64-bit architecture
+
+- Page Table Entries: 8 bytes, including PFN + flags
+- Virtual Page Number (VPN): $2^64$/Page Size
+- Page Size: 4KB (can also be 8kb, 2MB, 4MB, ...)
+
+Page table size in this case is $2^64/2^12$ \* 8B = 32PB
+
+- Process doesn't use entire address space, or theoretical available virtual memory.
+- Even on 32-bit architecture will not always use all of 4GB
+- But page table assumes an entry per VPN, regardless of whether corresponding virtual memory is needed or not.
+
+### Hierarchical Page Tables
+
+We don't design page tables using a flat structure any more. Instead, we now design it with a hierarchical structure.
+
+- The outer level (outer page table or top page table) is referred to as a page table directory. Its elements are pointers to page tables.
+- Internal page table has proper page tables. They exists only for valid virtual memory regions.
+- On malloc a new internal page table may be allocated
+
+To find the right element in the page table structure, the virtual address is split into another component.
+
+- Last portion of the address is the offset
+- First 2 components are indices for the outer and inner page table
+- Example, 10bits for internal pagetable offset, 10bits for the page => size of internal page table is $2^10 * 2^10 = $1MB
+- We can use additional layers (3rd level for page table directory pointer, 4th level for page table directory pointer map)
+- important on 64 bit architectures
+  - Page table requirements are larger and virtual address spaces of processes tend to be more sparse. There are larger gaps in the virtual address space region.
+  - The larger the gaps, the larger the number of internal page table components that won't be necessary as a result of the gap.
+
+![Multilevel page table](img/P3L2.8.png)
+
+Multi-level page table tradeoffs
+
+**+**:
+
+- As we add multiple levels, the internal page tables and page table directories end up covering smaller regions of the virtual address space. As a result, it is more likely that the virtual ddress space will have gaps that will match that granularity and we will be able to reduce the size of the page table. **potential reduced page table size**
+
+**-**:
+
+- There will be more memory accesses that will be required for translation: we'll have to access each level of the page table components before we produce the physical address. **increased translation latency**
+
+### Speeding up translation TLB
+
+#### Overhead of Address Translation
+
+**Single-level page table**
+
+A memory reference will actually require two memory references:
+
+- one access to page table entry
+- one access to memory
+
+#**Four-level page table**
+
+- four accesses to page table entries
+- one access to memory
+
+#### Page Table Cache
+
+The standard technique to avoid repeated memory access is to use a page table cache.
+
+**Translation Lookaside Buffer**
+
+- MMU hardware integrates a hardware cache that's dedicated for caching address translations, and this is called the Translation Lookaside Buffer or TLB.
+- on TLB miss, then we have to perform page table access from memory
+- TLB has all the necessary protection/validity bits to verify the access is correct or to generate a fault
+- small number of entries in the TLB can result in a high TLB hit rate and this is because we typically have a high temporal and spatial locality
+
+> x86 core i7
+>
+> per core:
+>
+> - 64-entry data TLB
+> - 128-entry instruction TLB
+> - 512-entry shared second-level TLB
+
+### Inverted Page Tables
+
+Page table entries contain information, one for each element of the physical memory. If we are thinking about physical frame numbers, each of the page table elements will correspond to one physical frame number.
+
+To find the translation, the page table is searched based on the process ID and first part of the virtual address. When the appropriate pid and p entry is found into the page table, the index that will denote the physical frame number of the memory location that's indexed by logical address.
+
+The problem with inverted page table is we have to perform a linear search of the page table to see which one of its entry matches the pid p information that's part of the logical address that was presented by the CPU. In practice, TLB will catch a lot of the references to improve performance.
+
+#### Hashing Page Tables
+
+Inverted page tables are supplemented with hashing page tables. A hash is computed on a part of the address and that is and entry into the hash table taht points to a linkied list of possible matches for this part of the address.
+
+### Segmentation
+
+Virtual to physical memory mapping can be performed using segments. The process is referred to as segmentation.
+
+![segmentation](img/P3L2.12.png)
+
+- The address space is divided into components of arbitrary granularity, of arbitrary size, and the different segments will correspond to some logically meaningful components of the address space (like code, heap, data, stack).
+- A virtual address includes a segment descriptor, and an offset. The segment descriptor is used in combination with a descriptor table, to produce information regarding the physical address of the segment.
+
+A segment could be represented with a contiguous portion of physical memory. THe segment would be defined by its base address and its limit registers, which implies also the segment size. We can have segments with different size using this method.
+
+In practice, segmentation and paging are used together.
