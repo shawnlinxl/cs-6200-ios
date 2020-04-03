@@ -2934,4 +2934,113 @@ In message passing, this requires that the CPU is involved in copying the data. 
 In share memory case: CPU cylces are need to map memory into address space, and copy the data into channel when necessary
 
 - set up once use many times, and therefore good payoff
-- can perform well for 1 time use, in particular when we need to move large amount of data from one address space to another, t(copy) >> t(map)
+- can perform well for 1 time use, in particular when we need to move large amount of data from one address space to another, t(copy) >> t(map). In Windows, it exercise this t(copy) vs t(map) comparison in its "Local" Procedure Calls (LPC)
+
+### SysV Shared Memory Overview
+
+- OS supports "segments" of shared memory, that don't necessarily have to correspond to contiguous physical pages
+- OS treats shared memory as a system-wide resource, using system-wide policies. This means there is a limit on the total number of segments, and total size of the shared memory.
+
+1. Create: when a process requests that a shared memory segment is created, the OS allocates the required amount of physical memory. Then is assigns to it a **unique key**. The key is used to identify the segment within the OS. Any other process can refer to this segment using this key.
+2. Attach: Using the key, the shared memory segment can be attached by a process. This means the OS establishes valid mappings between virtual addresses and physical memory that backs the segment. Multiple processes can attach to the same shared memory segment. In this manner, each process ends up sharing access to the same physical pages.
+3. Detach: Detaching as segment means invalidating the address mappings for the virtual address region that correspond to that segment within the process. Page table entries are no longer valid.
+4. Destroy: Segments are persistent until there is an explicit request for it to be destroyed. (very different from non-shared memory)
+
+### SysV Shared Memory API
+
+1. `shmget(shmid, size, flag)`: create or open a segment of the appropriate size. Flag includes options like permissions. pid is the key. It is explicitly passed to the OS by the application.  
+   `ftok(pathname, prg_id)`: generates a token based on its arguments. Same args will always return the same keys.
+2. `shmat(shmid, addr, flags)` attach the shared memory segment into the virtual address space of the process.
+   - addr is an option to pass in the virtual address to pass to. If NULL then OS will choose arbitrary suitable address that's available.
+   - returned virtual memory can be interpreted in arbitrary ways. It's programmer's responsibility to cast address to the appropriate type.
+3. `shmdt(shmid)`: detaches the segment by identifier
+4. `shmctl(shmid, cmd, buf)`: destroy with IPC_RHID
+
+### POSIX Shared Memory API
+
+POSIX doesn't use segements. Instead, it uses files. They are not real files.
+
+1. `shm_open()`:
+   - returns file descriptor
+   - files are in `tempfs` file system
+   - key $\approx$ file descriptor
+2. `mmap()` and `unmmap()`: mapping virtual to physical addresses
+3. `shm_close()`: remove the file descriptor from the address space of the process
+4. `shm_unlink()`
+
+[POSIX Shared Memory API](http://man7.org/linux/man-pages/man7/shm_overview.7.html)
+
+### Shared Memory and Synchronization
+
+When data is placed in shared memory, processes have concurrent access to the data. The access must be synchronized to avoid race conditions. This is analogous to threads accessing shared state in a single address space, but for processes.
+
+**Synchronization method**
+
+1. mechanisms supported by process threading library (pthreads)
+2. OS-supported IPC for synchronization
+
+**Either method must coordinate**
+
+- number of concurrent accesses to shared segment
+- when data is available and ready for consumption
+
+### Pthreads sync for IPC
+
+PTHREAD_PROCESS_SHARED:
+
+- `pthread_mutexattr_t`
+- `pthread_condattr_t`
+
+Synchronization data structures must be shared!
+
+![Pthreads IPC code](img/P3L3.13.png)
+
+### Other IPC Sync
+
+Message Queues:
+
+- implement "mutual exclusion" via send/recv
+
+> Example Protocol
+>
+> - P1 writes data to shmem, sends ready to queue
+> - P2 receives message, reads data and sends "ok" message back
+
+- send message to message queue `msgsnd`
+- receive messages from a message queue `msgrev`
+- perform a message control operation `msgctl`
+- get a message identifier `msgget`
+
+Semaphores: operating system supported synchronization construct
+
+- binary semaphore can have 2 values: 0 or 1. It can achieve similar type of behavior of mutex.
+  - if value == 0: stop/blocked
+  - if value == 1: decrement (lock, set value to 0) and go/proceed
+
+[System V IPC](http://www.tldp.org/LDP/lpg/node21.html)
+[Message Queue](http://man7.org/linux/man-pages/man3/mq_notify.3.html)
+[Semaphore](http://man7.org/linux/man-pages/man3/sem_wait.3.html)
+
+### IPC Command Line Tools
+
+ipcs: list all IPC facilities
+`-m` displays info on shared memory IPC only
+
+ipcrm: delete IPC facility
+`-m [shmid]` deletes shm segment with given id
+
+### Shared Memory Design Considerations
+
+- Different APIs/mechanisms for synchronization
+- OS provides shared memory, and is out of the way
+- data passing synchronization protocols are up to the programmer
+
+### How Many Segments
+
+1 large segment: manager for allocating/freeing memory from shared segment
+many small segements: use pool of segements, queue of segement ids; communicate segment IDs among processes via other mechanisms like message queue.
+
+### What size segments? What if data doesn't fit?
+
+Segment size == data size => works for well-known static sizes. limits max data size.
+Segment size < message size => transfer data in rounds; include protocol to track data movement progress
