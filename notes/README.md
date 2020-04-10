@@ -2041,7 +2041,7 @@ Based on priority, the order of completion should be T1, T2, T3. However, the ac
 > | T2   | 2              | 0            |
 > | T3   | 2              | 0            |
 
-![Round Robin](img/P3l1.10.png)
+![Round Robin](img/P3L1.10.png)
 
 #### Round Robin with Priorities
 
