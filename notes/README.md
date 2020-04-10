@@ -2323,7 +2323,7 @@ Assumptions
 - avoid/limit contention on processor pipeline
 - all components (CPU and memory) are well utilized (still leads to interference and degradation but minimal)
 
-### How odo we know if a process is CPU-bound or Memory-bound
+### How do we know if a process is CPU-bound or Memory-bound
 
 Use historic information.
 
@@ -2441,7 +2441,7 @@ Virtual memory is divided into fixed sized segments that are called pages. The p
 
 Allocation doesn't use fix-sized pages. It uses more flexibly sized segments that can be mapped to some regions in physical memory as well as swapped in and out of physical memory. Arbitration of accesses in order to either translate or or validate the appropriate access uses segment registers.
 
-####sHardware support
+#### Hardware support
 
 Hardware has evolved to integrate mechanism to make it easier, fater, and more reliable to perform allocation and arbitration tasks.
 
